@@ -12,28 +12,30 @@
  * and limitations under the License.
  * =========================================================================================
  */
- 
+
 package kamon.prometheus
 
 import java.lang.StringBuilder
-import java.text.{DecimalFormat, DecimalFormatSymbols}
+import java.text.{DecimalFormatSymbols, DecimalFormat}
 import java.util.Locale
 
-import kamon.Environment
-import kamon.metric.{MetricDistribution, MetricValue}
-import kamon.metric.MeasurementUnit
-import kamon.metric.MeasurementUnit.{information, time, none}
+import kamon.metric._
+import kamon.metric.MeasurementUnit.none
 import kamon.metric.MeasurementUnit.Dimension._
 
 class ScrapeDataBuilder(prometheusConfig: PrometheusReporter.Configuration, environmentTags: Map[String, String] = Map.empty) {
   private val builder = new StringBuilder()
   private val decimalFormatSymbols = DecimalFormatSymbols.getInstance(Locale.ROOT)
   private val numberFormat = new DecimalFormat("#0.0########", decimalFormatSymbols)
+  private val quantiles = List(0.01, 0.05, 0.5, 0.9, 0.95, 0.99, 0.999)
 
   import builder.append
 
   def build(): String =
-    builder.toString()
+    builder
+      .toString
+      .replace("service_http_server_nanoseconds_count{", "service_http_server{")
+      .replace("service_http_server_nanoseconds{", "service_trace_elapsed_time_nanoseconds{")
 
   def appendCounters(counters: Seq[MetricValue]): ScrapeDataBuilder = {
     counters.groupBy(_.name).foreach(appendValueMetric("counter", alwaysIncreasing = true))
@@ -53,17 +55,18 @@ class ScrapeDataBuilder(prometheusConfig: PrometheusReporter.Configuration, envi
   private def appendValueMetric(metricType: String, alwaysIncreasing: Boolean)(group: (String, Seq[MetricValue])): Unit = {
     val (metricName, snapshots) = group
     val unit = snapshots.headOption.map(_.unit).getOrElse(none)
-    val normalizedMetricName = normalizeMetricName(metricName, unit) + {
-      if(alwaysIncreasing) "_total" else ""
+    val tags = snapshots.headOption.map(_.tags).getOrElse(Map.empty)
+    val normalizedMetricName = normalizeMetricName(metricName, unit, tags) + {
+      if (alwaysIncreasing) "" else "_gauge_max"
     }
 
     append("# TYPE ").append(normalizedMetricName).append(" ").append(metricType).append("\n")
 
-    snapshots.foreach(metric => {
+    snapshots.foreach(metric ⇒ {
       append(normalizedMetricName)
       appendTags(metric.tags)
       append(" ")
-      append(format(scale(metric.value, metric.unit)))
+      append(format(metric.value))
       append("\n")
     })
   }
@@ -71,16 +74,18 @@ class ScrapeDataBuilder(prometheusConfig: PrometheusReporter.Configuration, envi
   private def appendDistributionMetric(group: (String, Seq[MetricDistribution])): Unit = {
     val (metricName, snapshots) = group
     val unit = snapshots.headOption.map(_.unit).getOrElse(none)
-    val normalizedMetricName = normalizeMetricName(metricName, unit)
+    val tags = snapshots.headOption.map(_.tags).getOrElse(Map.empty)
+    val normalizedMetricName = normalizeMetricName(metricName, unit, tags)
 
     append("# TYPE ").append(normalizedMetricName).append(" histogram").append("\n")
 
-    snapshots.foreach(metric => {
-      if(metric.distribution.count > 0) {
-        appendHistogramBuckets(normalizedMetricName, metric.tags, metric, resolveBucketConfiguration(metric))
+    snapshots.foreach(metric ⇒ {
+      if (metric.distribution.count > 0) {
+        val buckets = quantiles.map(q ⇒ (q, metric.distribution.percentile(q * 100).value)).toMap
+        appendHistogramBuckets(normalizedMetricName, metric.tags, metric, buckets)
 
         val count = format(metric.distribution.count)
-        val sum = format(scale(metric.distribution.sum, metric.unit))
+        val sum = format(metric.distribution.sum)
         appendTimeSerieValue(normalizedMetricName, metric.tags, count, "_count")
         appendTimeSerieValue(normalizedMetricName, metric.tags, sum, "_sum")
       }
@@ -96,78 +101,83 @@ class ScrapeDataBuilder(prometheusConfig: PrometheusReporter.Configuration, envi
     append("\n")
   }
 
-  private def resolveBucketConfiguration(metric: MetricDistribution): Seq[java.lang.Double] =
-    prometheusConfig.customBuckets.getOrElse(
-      metric.name,
-      metric.unit.dimension match {
-        case Time         => prometheusConfig.timeBuckets
-        case Information  => prometheusConfig.informationBuckets
-        case _            => prometheusConfig.defaultBuckets
-      }
-    )
+  private def appendHistogramBuckets(name: String, tags: Map[String, String], metric: MetricDistribution, buckets: Map[Double, Long]): Unit = {
+//    val distributionBuckets = metric.distribution.bucketsIterator
+//    var currentDistributionBucket = distributionBuckets.next()
+//    var currentDistributionBucketValue = currentDistributionBucket.value
+//    var inBucketCount = 0L
+//    var leftOver = currentDistributionBucket.frequency
 
-  private def appendHistogramBuckets(name: String, tags: Map[String, String], metric: MetricDistribution, buckets: Seq[java.lang.Double]): Unit = {
-    val distributionBuckets = metric.distribution.bucketsIterator
-    var currentDistributionBucket = distributionBuckets.next()
-    var currentDistributionBucketValue = scale(currentDistributionBucket.value, metric.unit)
-    var inBucketCount = 0L
-    var leftOver = currentDistributionBucket.frequency
+    buckets.foreach {
+      case (q, c) ⇒
+        val bucketTags = tags + ("quantile" → String.valueOf(q))
 
-    buckets.foreach { configuredBucket =>
-      val bucketTags = tags + ("le" -> String.valueOf(configuredBucket))
+        //        if (currentDistributionBucketValue <= c) {
+        //          inBucketCount += leftOver
+        //          leftOver = 0
+        //
+        //          while (distributionBuckets.hasNext && currentDistributionBucketValue <= c) {
+        //            currentDistributionBucket = distributionBuckets.next()
+        //            currentDistributionBucketValue = currentDistributionBucket.value
+        //
+        //            if (currentDistributionBucketValue <= c) {
+        //              inBucketCount += currentDistributionBucket.frequency
+        //            } else
+        //              leftOver = currentDistributionBucket.frequency
+        //          }
+        //        }
 
-      if(currentDistributionBucketValue <= configuredBucket) {
-        inBucketCount += leftOver
-        leftOver = 0
-
-        while (distributionBuckets.hasNext && currentDistributionBucketValue <= configuredBucket ) {
-          currentDistributionBucket = distributionBuckets.next()
-          currentDistributionBucketValue = scale(currentDistributionBucket.value, metric.unit)
-
-          if (currentDistributionBucketValue <= configuredBucket) {
-            inBucketCount += currentDistributionBucket.frequency
-          }
-          else
-            leftOver = currentDistributionBucket.frequency
-        }
-      }
-
-      appendTimeSerieValue(name, bucketTags, format(inBucketCount), "_bucket")
+        appendTimeSerieValue(name, bucketTags, format(c))
     }
 
-    while(distributionBuckets.hasNext) {
-      leftOver += distributionBuckets.next().frequency
-    }
+//    while (distributionBuckets.hasNext) {
+//      leftOver += distributionBuckets.next().frequency
+//    }
 
-    appendTimeSerieValue(name, tags + ("le" -> "+Inf"), format(leftOver + inBucketCount), "_bucket")
+//    appendTimeSerieValue(name, tags + ("quantile" → "+Inf"), format(leftOver + inBucketCount))
   }
 
-
-
   private def appendTags(tags: Map[String, String]): Unit = {
-    val allTags = tags ++ environmentTags
-    if(allTags.nonEmpty) append("{")
+    val allTags = (tags ++ environmentTags).map {
+      case ("operation", v)        ⇒ ("trace-name", v)
+      case ("http.status_code", v) ⇒ ("status", v)
+      case (k, v)                  ⇒ (k, v)
+    }
+
+    if (allTags.nonEmpty) append("{")
 
     val tagIterator = allTags.iterator
     var tagCount = 0
 
-    while(tagIterator.hasNext) {
+    while (tagIterator.hasNext) {
       val (key, value) = tagIterator.next()
-      if(tagCount > 0) append(",")
+      if (tagCount > 0) append(",")
       append(normalizeLabelName(key)).append("=\"").append(value).append('"')
       tagCount += 1
     }
 
-    if(allTags.nonEmpty) append("}")
+    if (allTags.nonEmpty) append("}")
   }
 
-  private def normalizeMetricName(metricName: String, unit: MeasurementUnit): String = {
-    val normalizedMetricName = metricName.map(charOrUnderscore)
+  private def normalizeMetricName(metricName: String, unit: MeasurementUnit, tags: Map[String, String]): String = {
+    val blazeMetricName =
+      if (metricName.contains("akka.http.server"))
+        metricName
+          .replace("akka.http.server", "http_server") //todo what about spray servers?
+      else if (metricName.contains("span.processing-time") && tags.get("span.kind").contains("server"))
+        "http_server"
+      else metricName
 
-    unit.dimension match  {
-      case Time         => normalizedMetricName + "_seconds"
-      case Information  => normalizedMetricName + "_bytes"
-      case _            => normalizedMetricName
+    val normalizedMetricName = "service_" + blazeMetricName.map(charOrUnderscore)
+
+    val magnitude = unit.magnitude.name match {
+      case "byte" ⇒ "bytes"
+      case other  ⇒ other
+    }
+
+    unit.dimension match {
+      case Time | Information ⇒ normalizedMetricName + "_" + magnitude
+      case _                  ⇒ normalizedMetricName
     }
   }
 
@@ -175,16 +185,9 @@ class ScrapeDataBuilder(prometheusConfig: PrometheusReporter.Configuration, envi
     label.map(charOrUnderscore)
 
   private def charOrUnderscore(char: Char): Char =
-    if(char.isLetterOrDigit || char == '_') char else '_'
+    if (char.isLetterOrDigit || char == '_') char else '_'
 
   private def format(value: Double): String =
     numberFormat.format(value)
-
-  private def scale(value: Long, unit: MeasurementUnit): Double = unit.dimension match {
-    case Time         if unit.magnitude != time.seconds.magnitude       => MeasurementUnit.scale(value, unit, time.seconds)
-    case Information  if unit.magnitude != information.bytes.magnitude  => MeasurementUnit.scale(value, unit, information.bytes)
-    case _ => value
-  }
-
 
 }

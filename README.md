@@ -76,8 +76,8 @@ kamon.prometheus.include-environment-tags = yes
 ```
 in your `application.conf` as well, yielding, for example
 ```
-# TYPE some_metric_seconds_total counter
-some_metric_seconds_total{custom_id="test1",env="staging"} 10.0
+# TYPE some_metric_seconds counter
+some_metric_seconds{custom_id="test1",env="staging"} 10.0
 # TYPE some_metric_seconds gauge
 some_metric_seconds{custom_id="test1",env="staging"} 10.0
 ```
