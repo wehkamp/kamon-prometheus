@@ -36,11 +36,10 @@ class PrometheusReporter extends MetricReporter {
   @volatile private var preparedScrapeData: String =
     "# The kamon-prometheus module didn't receive any data just yet.\n"
 
-
   override def start(): Unit = {
     val config = readConfiguration(Kamon.config())
 
-    if(config.startEmbeddedServer)
+    if (config.startEmbeddedServer)
       startEmbeddedServer(config)
   }
 
@@ -50,7 +49,7 @@ class PrometheusReporter extends MetricReporter {
 
   override def reconfigure(newConfig: Config): Unit = {
     val config = readConfiguration(newConfig)
-    if(config.startEmbeddedServer) {
+    if (config.startEmbeddedServer) {
       stopEmbeddedServer()
       startEmbeddedServer(config)
     }
@@ -77,7 +76,6 @@ class PrometheusReporter extends MetricReporter {
       newFixedLengthResponse(Response.Status.OK, "text/plain; version=0.0.4; charset=utf-8", scrapeData())
     }
   }
-
 
   private def startEmbeddedServer(config: PrometheusReporter.Configuration): Unit = {
     val server = new EmbeddedHttpServer(config.embeddedServerHostname, config.embeddedServerPort)
@@ -119,7 +117,7 @@ object PrometheusReporter {
     private def readCustomBuckets(customBuckets: Config): Map[String, Seq[java.lang.Double]] =
       customBuckets
         .topLevelKeys
-        .map(k => (k, customBuckets.getDoubleList(ConfigUtil.quoteString(k)).asScala))
+        .map(k ⇒ (k, customBuckets.getDoubleList(ConfigUtil.quoteString(k)).asScala))
         .toMap
   }
 }

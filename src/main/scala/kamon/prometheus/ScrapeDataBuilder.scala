@@ -12,7 +12,7 @@
  * and limitations under the License.
  * =========================================================================================
  */
- 
+
 package kamon.prometheus
 
 import java.lang.StringBuilder
@@ -54,12 +54,12 @@ class ScrapeDataBuilder(prometheusConfig: PrometheusReporter.Configuration, envi
     val (metricName, snapshots) = group
     val unit = snapshots.headOption.map(_.unit).getOrElse(none)
     val normalizedMetricName = normalizeMetricName(metricName, unit) + {
-      if(alwaysIncreasing) "_total" else ""
+      if (alwaysIncreasing) "_total" else ""
     }
 
     append("# TYPE ").append(normalizedMetricName).append(" ").append(metricType).append("\n")
 
-    snapshots.foreach(metric => {
+    snapshots.foreach(metric ⇒ {
       append(normalizedMetricName)
       appendTags(metric.tags)
       append(" ")
@@ -75,8 +75,8 @@ class ScrapeDataBuilder(prometheusConfig: PrometheusReporter.Configuration, envi
 
     append("# TYPE ").append(normalizedMetricName).append(" histogram").append("\n")
 
-    snapshots.foreach(metric => {
-      if(metric.distribution.count > 0) {
+    snapshots.foreach(metric ⇒ {
+      if (metric.distribution.count > 0) {
         appendHistogramBuckets(normalizedMetricName, metric.tags, metric, resolveBucketConfiguration(metric))
 
         val count = format(metric.distribution.count)
@@ -100,9 +100,9 @@ class ScrapeDataBuilder(prometheusConfig: PrometheusReporter.Configuration, envi
     prometheusConfig.customBuckets.getOrElse(
       metric.name,
       metric.unit.dimension match {
-        case Time         => prometheusConfig.timeBuckets
-        case Information  => prometheusConfig.informationBuckets
-        case _            => prometheusConfig.defaultBuckets
+        case Time        ⇒ prometheusConfig.timeBuckets
+        case Information ⇒ prometheusConfig.informationBuckets
+        case _           ⇒ prometheusConfig.defaultBuckets
       }
     )
 
@@ -113,21 +113,20 @@ class ScrapeDataBuilder(prometheusConfig: PrometheusReporter.Configuration, envi
     var inBucketCount = 0L
     var leftOver = currentDistributionBucket.frequency
 
-    buckets.foreach { configuredBucket =>
-      val bucketTags = tags + ("le" -> String.valueOf(configuredBucket))
+    buckets.foreach { configuredBucket ⇒
+      val bucketTags = tags + ("quantile" → String.valueOf(configuredBucket))
 
-      if(currentDistributionBucketValue <= configuredBucket) {
+      if (currentDistributionBucketValue <= configuredBucket) {
         inBucketCount += leftOver
         leftOver = 0
 
-        while (distributionBuckets.hasNext && currentDistributionBucketValue <= configuredBucket ) {
+        while (distributionBuckets.hasNext && currentDistributionBucketValue <= configuredBucket) {
           currentDistributionBucket = distributionBuckets.next()
           currentDistributionBucketValue = scale(currentDistributionBucket.value, metric.unit)
 
           if (currentDistributionBucketValue <= configuredBucket) {
             inBucketCount += currentDistributionBucket.frequency
-          }
-          else
+          } else
             leftOver = currentDistributionBucket.frequency
         }
       }
@@ -135,39 +134,37 @@ class ScrapeDataBuilder(prometheusConfig: PrometheusReporter.Configuration, envi
       appendTimeSerieValue(name, bucketTags, format(inBucketCount), "_bucket")
     }
 
-    while(distributionBuckets.hasNext) {
+    while (distributionBuckets.hasNext) {
       leftOver += distributionBuckets.next().frequency
     }
 
-    appendTimeSerieValue(name, tags + ("le" -> "+Inf"), format(leftOver + inBucketCount), "_bucket")
+    appendTimeSerieValue(name, tags + ("quantile" → "+Inf"), format(leftOver + inBucketCount), "_bucket")
   }
-
-
 
   private def appendTags(tags: Map[String, String]): Unit = {
     val allTags = tags ++ environmentTags
-    if(allTags.nonEmpty) append("{")
+    if (allTags.nonEmpty) append("{")
 
     val tagIterator = allTags.iterator
     var tagCount = 0
 
-    while(tagIterator.hasNext) {
+    while (tagIterator.hasNext) {
       val (key, value) = tagIterator.next()
-      if(tagCount > 0) append(",")
+      if (tagCount > 0) append(",")
       append(normalizeLabelName(key)).append("=\"").append(value).append('"')
       tagCount += 1
     }
 
-    if(allTags.nonEmpty) append("}")
+    if (allTags.nonEmpty) append("}")
   }
 
   private def normalizeMetricName(metricName: String, unit: MeasurementUnit): String = {
-    val normalizedMetricName = metricName.map(charOrUnderscore)
+    val normalizedMetricName = "service_" + metricName.map(charOrUnderscore)
 
-    unit.dimension match  {
-      case Time         => normalizedMetricName + "_seconds"
-      case Information  => normalizedMetricName + "_bytes"
-      case _            => normalizedMetricName
+    unit.dimension match {
+      case Time        ⇒ normalizedMetricName + "_seconds"
+      case Information ⇒ normalizedMetricName + "_bytes"
+      case _           ⇒ normalizedMetricName
     }
   }
 
@@ -175,16 +172,15 @@ class ScrapeDataBuilder(prometheusConfig: PrometheusReporter.Configuration, envi
     label.map(charOrUnderscore)
 
   private def charOrUnderscore(char: Char): Char =
-    if(char.isLetterOrDigit || char == '_') char else '_'
+    if (char.isLetterOrDigit || char == '_') char else '_'
 
   private def format(value: Double): String =
     numberFormat.format(value)
 
   private def scale(value: Long, unit: MeasurementUnit): Double = unit.dimension match {
-    case Time         if unit.magnitude != time.seconds.magnitude       => MeasurementUnit.scale(value, unit, time.seconds)
-    case Information  if unit.magnitude != information.bytes.magnitude  => MeasurementUnit.scale(value, unit, information.bytes)
-    case _ => value
+    case Time if unit.magnitude != time.seconds.magnitude             ⇒ MeasurementUnit.scale(value, unit, time.seconds)
+    case Information if unit.magnitude != information.bytes.magnitude ⇒ MeasurementUnit.scale(value, unit, information.bytes)
+    case _                                                            ⇒ value
   }
-
 
 }

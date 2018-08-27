@@ -13,13 +13,23 @@
  * =========================================================================================
  */
 
-resolvers += Resolver.bintrayRepo("kamon-io", "snapshots")
-val kamonCore = "io.kamon" %% "kamon-core" % "1.1.0"
-val nanohttpd = "org.nanohttpd" % "nanohttpd" % "2.3.1"
+resolvers ++= Seq(
+    Resolver.bintrayRepo("kamon-io", "snapshots"),
+    Resolver.url("blaze-plugin-releases", url("https://dl.bintray.com/blaze-plugins/releases"))(Resolver.ivyStylePatterns))
+
+val kamonCore = "io.kamon"      %% "kamon-core" % "1.1.0" % "compile"
+val nanohttpd = "org.nanohttpd" % "nanohttpd"   % "2.3.1" % "compile"
+
+val logbackClassic = "ch.qos.logback"   % "logback-classic" % "1.0.13" % "test"
+val scalatest      = "org.scalatest"    %% "scalatest"      % "3.0.1"  % "test"
 
 lazy val root = (project in file("."))
+  .enablePlugins(blaze.sbt.BlazeLibPlugin)
   .settings(name := "kamon-prometheus")
   .settings(
-    libraryDependencies ++=
-      compileScope(kamonCore, nanohttpd) ++
-      testScope(scalatest, logbackClassic))
+      libraryDependencies ++=
+        Seq(
+            kamonCore,
+            nanohttpd,
+            scalatest,
+            logbackClassic))
