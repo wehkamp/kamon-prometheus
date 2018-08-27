@@ -1,2 +1,1 @@
-lazy val root: Project = project.in(file(".")).dependsOn(latestSbtUmbrella)
-lazy val latestSbtUmbrella = uri("git://github.com/kamon-io/kamon-sbt-umbrella.git")
+addSbtPlugin("rfs.blaze" %% "sbt-blaze" % "1.6.1", "0.13", "2.10")
